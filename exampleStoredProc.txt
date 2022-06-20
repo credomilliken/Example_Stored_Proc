@@ -1,0 +1,84 @@
+USE [Rexroth]
+GO
+/****** Object:  StoredProcedure [dbo].[p_tblAssociate_SyncWandaMasterData_Position]    Script Date: 6/20/2022 3:56:33 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+ALTER PROCEDURE [dbo].[p_tblAssociate_SyncWandaMasterData_Position]
+AS
+/***************************************************
+** CREATOR:   Nathan Hawkins
+** DATE:      9/20/2019
+**
+**
+** OBJECTIVE: Update tblAssociate with recently downloaded SAP data, esp
+
+NOTE: Due to SAP limitations on file row length the Position and SupPerNo were being truncated...
+So we arranged a 2nd download....
+
+
+
+**
+**
+** CHANGES:   DATE          USER          CHANGE
+
+****************************************************/
+BEGIN TRY
+
+return
+
+	CREATE TABLE #T (PK INT identity(1, 1))
+
+
+	UPDATE tblAssociate
+	SET AS_SupervisorEmail = SupervisorEmail,
+		AS_SupervisorPNUM = SupPersNo
+	FROM #T AS SAP
+	INNER JOIN tblAssociate AS ASS ON SAP.Personnelno = ASS.PERNR
+	WHERE isnumeric(SAP.SupPersNo) = 1
+
+	--remove ones that don't have a match any longer
+	UPDATE a1
+	SET AS_SupervisorEmail = NULL,
+		AS_SupervisorASID = NULL,
+		AS_SupervisorPNUM = NULL
+	FROM tblAssociate AS A1
+	LEFT OUTER JOIN #T AS a2 ON A1.PERNR = a2.Personnelno
+	WHERE (a2.Personnelno IS NULL)
+		AND a1.AS_Active = 1
+
+	UPDATE A1
+	SET AS_SupervisorASID = A2.ASID
+	FROM tblAssociate AS A1
+	INNER JOIN tblAssociate AS A2 ON A1.AS_SupervisorPNUM = A2.PERNR
+
+	UPDATE tblAssociate
+	SET AS_Position = PositionDescription
+	FROM tblAssociate ass
+	INNER JOIN #T TEMP ON ass.PERNR = TEMP.Personnelno
+	WHERE (isnull(AS_Position, '') <> PositionDescription)
+
+	--select * from tblAssociate where AS_first = 'Tommy'
+
+
+END TRY
+
+BEGIN CATCH
+	DECLARE @Err VARCHAR(4000)
+
+	SELECT @Err = ERROR_MESSAGE()
+
+	PRINT @Err
+
+	--SET @Err = @FT_Desc + ' - ' + @Err
+	EXEC HRL.dbo.p_tblAppErrorLog_Add @Err,
+		0,
+		0,
+		'unk',
+		'unk',
+		'Add_Associate_Finalize_WandaXL'
+END CATCH
